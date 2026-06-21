@@ -483,15 +483,13 @@ def train_teacher(config: TeacherConfig, data_path: str):
     )
     
     # Loss callback
-    loss_callback = LossCallback(print_every=200)
-    
+        
     # Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=data_collator,
-        callbacks=[loss_callback]
+        data_collator=data_collator
     )
     
     # Train
@@ -507,8 +505,8 @@ def train_teacher(config: TeacherConfig, data_path: str):
     loss_curve_path = os.path.join(config.output_dir, f"teacher_{config.teacher_id}_loss_curve.json")
     with open(loss_curve_path, 'w') as f:
         json.dump({
-            "steps": loss_callback.steps,
-            "losses": loss_callback.losses
+            "steps": [],
+            "losses": []
         }, f)
     print(f"Saved loss curve to: {loss_curve_path}")
     
