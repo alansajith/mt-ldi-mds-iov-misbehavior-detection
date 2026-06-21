@@ -306,8 +306,12 @@ def load_model_and_tokenizer(config: TeacherConfig):
     model.print_trainable_parameters()
     
     # Enable gradient checkpointing for memory efficiency
-    model.gradient_checkpointing_enable()
+    # Must disable cache BEFORE enabling checkpointing
     model.config.use_cache = False  # Disable cache for training
+    model.gradient_checkpointing_enable()
+    
+    # Ensure model is in training mode
+    model.train()
     
     return model, tokenizer
 
