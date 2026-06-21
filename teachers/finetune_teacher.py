@@ -305,10 +305,12 @@ def load_model_and_tokenizer(config: TeacherConfig):
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
     
-    # Enable gradient checkpointing for memory efficiency
-    # Must disable cache BEFORE enabling checkpointing
-    model.config.use_cache = False  # Disable cache for training
-    model.gradient_checkpointing_enable()
+    # Disable cache for training
+    model.config.use_cache = False
+    
+    # NOTE: gradient_checkpointing_enable() conflicts with LoRA/PEFT
+    # causing "element 0 of tensors does not require grad" error
+    # Instead rely on batch size reduction and gradient accumulation
     
     # Ensure model is in training mode
     model.train()
