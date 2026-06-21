@@ -253,11 +253,12 @@ def load_model_and_tokenizer(config: TeacherConfig):
     print(f"\nLoading model: {config.model_id}")
     print(f"GPU memory before loading: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
     
-    # Load tokenizer
+    # Load tokenizer - use_fast=False to avoid ModelWrapper enum issue
     tokenizer = AutoTokenizer.from_pretrained(
         config.model_id,
         trust_remote_code=True,
-        padding_side="right"
+        padding_side="right",
+        use_fast=False
     )
     tokenizer.pad_token = tokenizer.eos_token
     
