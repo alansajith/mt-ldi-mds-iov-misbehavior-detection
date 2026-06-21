@@ -206,15 +206,17 @@ def remove_outliers_zscore(df: pd.DataFrame, feature_cols: List[str],
 # ============================================================================
 
 def find_topk_pairs(df: pd.DataFrame, feature_cols: List[str], 
-                    label_col: str, k: int = 5) -> Dict[int, List[Tuple[int, int, float]]]:
+                    label_col: str, k: int = 5, sample_per_class: int = 2000) -> Dict[int, List[Tuple[int, int, float]]]:
     """
     Find top-k closest sample pairs per class using Euclidean distance.
+    Samples per class to avoid OOM on large datasets.
     
     Args:
         df: DataFrame with features and labels
         feature_cols: List of feature column names
         label_col: Label column name
         k: Number of closest pairs per class
+        sample_per_class: Max samples per class for distance computation
         
     Returns:
         Dictionary mapping class label to list of (idx1, idx2, distance) tuples
@@ -231,16 +233,26 @@ def find_topk_pairs(df: pd.DataFrame, feature_cols: List[str],
             pairs_dict[int(label)] = []
             continue
         
-        class_features = features[class_indices]
+        # Sample subset for distance computation if class is too large
+        if len(class_indices) > sample_per_class:
+            # Random sample indices
+            np.random.seed(42)
+            sampled_indices = np.random.choice(class_indices, sample_per_class, replace=False)
+            sampled_indices = np.sort(sampled_indices)
+            print(f"  Class {label}: sampling {sample_per_class}/{len(class_indices)} for top-{k} pairs")
+        else:
+            sampled_indices = class_indices
         
-        # Compute pairwise distances
+        class_features = features[sampled_indices]
+        
+        # Compute pairwise distances on sampled subset
         dist_matrix = cdist(class_features, class_features, metric='euclidean')
         
         # Get upper triangle (excluding diagonal)
         pairs = []
-        for i in range(len(class_indices)):
-            for j in range(i + 1, len(class_indices)):
-                pairs.append((class_indices[i], class_indices[j], dist_matrix[i, j]))
+        for i in range(len(sampled_indices)):
+            for j in range(i + 1, len(sampled_indices)):
+                pairs.append((sampled_indices[i], sampled_indices[j], dist_matrix[i, j]))
         
         # Sort by distance and take top-k
         pairs.sort(key=lambda x: x[2])
@@ -467,7 +479,7 @@ def process_split(df: pd.DataFrame, feature_cols: List[str], label_col: str,
     
     # 3. Find top-k nearest neighbor pairs per class (on full clean data)
     print(f"\n3. Finding top-{topk} nearest neighbor pairs per class...")
-    pairs = find_topk_pairs(df_clean, feature_cols, label_col, topk)
+    pairs = find_topk_pairs(df_clean, feature_cols, label_col, topk, sample_per_class=2000)
     
     # Store pair info as metadata (could be used for data augmentation)
     df_clean.attrs['neighbor_pairs'] = pairs
