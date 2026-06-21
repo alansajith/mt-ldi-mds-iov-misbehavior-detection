@@ -399,21 +399,22 @@ def print_class_distribution(df: pd.DataFrame, name: str, label_col: str = 'labe
 
 
 def process_split(df: pd.DataFrame, feature_cols: List[str], label_col: str,
-                  split_name: str, apply_scl: bool = True, 
+                  split_name: str, apply_scl: bool = False, 
                   scl_iterations: int = 10, zscore_threshold: float = 3.0,
-                  topk: int = 5) -> pd.DataFrame:
+                  topk: int = 5, scl_sample_size: int = 5000) -> pd.DataFrame:
     """
-    Process a single dataset split: outlier removal, SCL, nearest neighbors.
+    Process a single dataset split: outlier removal, SCL (on sampled subset), nearest neighbors.
     
     Args:
         df: DataFrame for this split
         feature_cols: Feature column names
         label_col: Label column name
         split_name: Name for logging
-        apply_scl: Whether to apply SupCon loss clustering
+        apply_scl: Whether to apply SupCon loss clustering on a sampled subset
         scl_iterations: SCL gradient steps
         zscore_threshold: Z-score outlier threshold
         topk: Number of nearest neighbor pairs
+        scl_sample_size: Max samples for SCL (to avoid OOM on large datasets)
         
     Returns:
         Processed DataFrame
@@ -426,11 +427,24 @@ def process_split(df: pd.DataFrame, feature_cols: List[str], label_col: str,
     print(f"\n1. Removing outliers (Z-score > {zscore_threshold})...")
     df_clean = remove_outliers_zscore(df, feature_cols, zscore_threshold)
     
-    # 2. Apply SupCon Loss for embedding clustering (if enabled)
+    # 2. Apply SupCon Loss for embedding clustering (on sampled subset only)
+    # NOTE: SupConLoss is meant for embeddings (teacher outputs), not raw features.
+    # This is a demonstration on a small sample. Full SCL is applied during teacher training.
     if apply_scl and len(df_clean) > 1:
-        print(f"\n2. Applying SupCon Loss clustering ({scl_iterations} iterations)...")
-        features = df_clean[feature_cols].values.astype(np.float32)
-        labels = df_clean[label_col].values
+        # Sample subset for SCL to avoid OOM (NxN matrix)
+        sample_n = min(scl_sample_size, len(df_clean))
+        if sample_n < len(df_clean):
+            print(f"\n2. Applying SupCon Loss on sampled subset ({sample_n}/{len(df_clean)} samples)...")
+            # Stratified sampling to preserve class balance
+            df_sample = df_clean.groupby(label_col, group_keys=False).apply(
+                lambda x: x.sample(min(len(x), max(1, sample_n // df_clean[label_col].nunique())), random_state=42)
+            ).reset_index(drop=True)
+        else:
+            df_sample = df_clean
+            print(f"\n2. Applying SupCon Loss clustering ({scl_iterations} iterations)...")
+        
+        features = df_sample[feature_cols].values.astype(np.float32)
+        labels = df_sample[label_col].values
         
         supcon = SupConLoss(temperature=0.07)
         initial_loss = supcon.compute(features, labels)
@@ -444,13 +458,14 @@ def process_split(df: pd.DataFrame, feature_cols: List[str], label_col: str,
         final_loss = supcon.compute(refined_features, labels)
         print(f"   Final SupCon loss: {final_loss:.4f}")
         
-        # Update features in DataFrame (for downstream use)
-        for i, col in enumerate(feature_cols):
-            df_clean[col] = refined_features[:, i]
+        # Note: We don't update the full dataframe with refined features
+        # since SCL on raw features is just for demonstration.
+        # The real SCL clustering happens on teacher embeddings later.
     else:
-        print("\n2. Skipping SupCon Loss (insufficient samples or disabled)")
+        print("\n2. Skipping SupCon Loss on raw features (use --apply-scl to enable on sample)")
+        print("   NOTE: SupConLoss is applied on teacher embeddings during fine-tuning.")
     
-    # 3. Find top-k nearest neighbor pairs per class
+    # 3. Find top-k nearest neighbor pairs per class (on full clean data)
     print(f"\n3. Finding top-{topk} nearest neighbor pairs per class...")
     pairs = find_topk_pairs(df_clean, feature_cols, label_col, topk)
     
@@ -485,10 +500,12 @@ def main():
                         help='Path to VeReMi CSV file')
     parser.add_argument('--output-dir', type=str, default='/kaggle/working/data',
                         help='Output directory for splits')
-    parser.add_argument('--no-scl', action='store_true',
-                        help='Disable SupCon loss clustering')
+    parser.add_argument('--apply-scl', action='store_true',
+                        help='Enable SupCon loss clustering on sampled subset (default: off for large datasets)')
     parser.add_argument('--scl-iterations', type=int, default=10,
                         help='Number of SCL gradient iterations')
+    parser.add_argument('--scl-sample-size', type=int, default=5000,
+                        help='Max samples for SCL to avoid OOM')
     parser.add_argument('--zscore-threshold', type=float, default=3.0,
                         help='Z-score outlier threshold')
     parser.add_argument('--topk', type=int, default=5,
@@ -514,14 +531,17 @@ def main():
     
     # Process each split
     df_A = process_split(df_A, feature_cols, 'label', 'Teacher A (DoS, Sybil)',
-                         apply_scl=not args.no_scl, scl_iterations=args.scl_iterations,
-                         zscore_threshold=args.zscore_threshold, topk=args.topk)
+                         apply_scl=args.apply_scl, scl_iterations=args.scl_iterations,
+                         zscore_threshold=args.zscore_threshold, topk=args.topk,
+                         scl_sample_size=args.scl_sample_size)
     df_B = process_split(df_B, feature_cols, 'label', 'Teacher B (Position)',
-                         apply_scl=not args.no_scl, scl_iterations=args.scl_iterations,
-                         zscore_threshold=args.zscore_threshold, topk=args.topk)
+                         apply_scl=args.apply_scl, scl_iterations=args.scl_iterations,
+                         zscore_threshold=args.zscore_threshold, topk=args.topk,
+                         scl_sample_size=args.scl_sample_size)
     df_C = process_split(df_C, feature_cols, 'label', 'Teacher C (Speed/Replay)',
-                         apply_scl=not args.no_scl, scl_iterations=args.scl_iterations,
-                         zscore_threshold=args.zscore_threshold, topk=args.topk)
+                         apply_scl=args.apply_scl, scl_iterations=args.scl_iterations,
+                         zscore_threshold=args.zscore_threshold, topk=args.topk,
+                         scl_sample_size=args.scl_sample_size)
     
     # Print class distributions
     print_class_distribution(df_A, 'Teacher A')
