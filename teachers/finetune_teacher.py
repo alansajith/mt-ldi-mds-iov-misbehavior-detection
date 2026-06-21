@@ -455,12 +455,17 @@ def train_teacher(config: TeacherConfig, data_path: str):
     teacher_output_dir = os.path.join(config.output_dir, f"teacher_{config.teacher_id}_adapters")
     os.makedirs(teacher_output_dir, exist_ok=True)
     
+    # Use gradient accumulation for larger effective batch size on T4
+    # Target effective batch = 16 (original), so if batch_size=4, accum=4
+    effective_batch = 16
+    gradient_accumulation_steps = max(1, effective_batch // config.batch_size)
+    
     training_args = TrainingArguments(
         output_dir=teacher_output_dir,
         num_train_epochs=config.epochs,
         max_steps=config.max_steps,
         per_device_train_batch_size=config.batch_size,
-        gradient_accumulation_steps=1,
+        gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=config.learning_rate,
         fp16=config.fp16,
         logging_steps=config.logging_steps,
