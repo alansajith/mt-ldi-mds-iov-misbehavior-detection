@@ -277,14 +277,21 @@ def load_model_and_tokenizer(config: TeacherConfig):
     )
     tokenizer.pad_token = tokenizer.eos_token
     
-    # Load model with device_map="auto" for multi-GPU
-    # Use fp16 for memory efficiency on T4 x2
+    # Load model with 8-bit quantization for memory efficiency
+    from transformers import BitsAndBytesConfig
+    bnb_config = BitsAndBytesConfig(
+        load_in_8bit=True,
+        llm_int8_threshold=6.0,
+        llm_int8_has_fp16_weight=False
+    )
+    
     model = AutoModelForCausalLM.from_pretrained(
         config.model_id,
         torch_dtype=torch.float16,
         device_map="auto",
         trust_remote_code=True,
-        low_cpu_mem_usage=True
+        low_cpu_mem_usage=True,
+        quantization_config=bnb_config
     )
     
     print(f"GPU memory after loading: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
@@ -300,6 +307,10 @@ def load_model_and_tokenizer(config: TeacherConfig):
         bias="none",
         inference_mode=False
     )
+    
+    # Prepare for k-bit training (required for quantized models)
+    from peft import prepare_model_for_kbit_training
+    model = prepare_model_for_kbit_training(model)
     
     # Apply LoRA
     model = get_peft_model(model, lora_config)
@@ -473,7 +484,8 @@ def train_teacher(config: TeacherConfig, data_path: str):
         per_device_train_batch_size=config.batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=config.learning_rate,
-        fp16=config.fp16,
+        fp16=False,  # 8-bit quantization handles precision
+        bf16=False,
         logging_steps=config.logging_steps,
         save_steps=config.save_steps,
         save_total_limit=3,
