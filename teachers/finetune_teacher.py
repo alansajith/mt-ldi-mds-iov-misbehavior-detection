@@ -63,6 +63,7 @@ class TeacherConfig:
     batch_size: int = 16
     max_steps: int = 3000
     max_seq_len: int = 512
+    max_samples: int = 5000
     fp16: bool = True
     save_steps: int = 500
     logging_steps: int = 50
@@ -182,9 +183,10 @@ def compute_variability(df: pd.DataFrame, feature_cols: List[str],
 
 
 def create_instruction_samples(df: pd.DataFrame, feature_cols: List[str], 
-                               tokenizer, max_seq_len: int = 512) -> Dataset:
+                               tokenizer, max_seq_len: int = 512, max_samples: int = 5000) -> Dataset:
     """
     Create instruction-tuning dataset for synthetic BSM log generation.
+    Samples a subset to avoid processing millions of samples.
     
     Format:
     Input: "Given this vehicular BSM log sample: {sample_features}, 
@@ -192,17 +194,27 @@ def create_instruction_samples(df: pd.DataFrame, feature_cols: List[str],
             generate a new realistic synthetic vehicular log for attack type: {attack_label}"
     Output: synthetic BSM log in the same feature format
     """
+    # Sample subset for training
+    if len(df) > max_samples:
+        print(f"Sampling {max_samples} samples from {len(df)} for teacher fine-tuning...")
+        # Stratified sampling to preserve class balance
+        df_sample = df.groupby('label', group_keys=False).apply(
+            lambda x: x.sample(min(len(x), max(1, max_samples // df['label'].nunique())), random_state=42)
+        ).reset_index(drop=True)
+    else:
+        df_sample = df
+    
     samples = []
     
-    print("Creating instruction-tuning samples...")
-    for idx in tqdm(range(len(df)), desc="Processing samples"):
-        row = df.iloc[idx]
+    print(f"Creating instruction-tuning samples from {len(df_sample)} samples...")
+    for idx in tqdm(range(len(df_sample)), desc="Processing samples"):
+        row = df_sample.iloc[idx]
         
         # Format original features
         orig_features = format_features(row, feature_cols)
         attack_name = ATTACK_LABELS.get(row['label'], f"class_{row['label']}")
         
-        # Compute variability
+        # Compute variability (on full df for accuracy)
         variability = compute_variability(df, feature_cols, idx)
         
         # Create instruction prompt
@@ -434,7 +446,7 @@ def train_teacher(config: TeacherConfig, data_path: str):
     model, tokenizer = load_model_and_tokenizer(config)
     
     # Create instruction-tuning dataset
-    train_dataset = create_instruction_samples(df, feature_cols, tokenizer, config.max_seq_len)
+    train_dataset = create_instruction_samples(df, feature_cols, tokenizer, config.max_seq_len, config.max_samples)
     
     # Training arguments
     teacher_output_dir = os.path.join(config.output_dir, f"teacher_{config.teacher_id}_adapters")
@@ -537,6 +549,8 @@ def main():
                         help='Maximum training steps')
     parser.add_argument('--max-seq-len', type=int, default=512,
                         help='Maximum sequence length')
+    parser.add_argument('--max-samples', type=int, default=5000,
+                        help='Max samples for instruction tuning')
     parser.add_argument('--lr', type=float, default=2e-4,
                         help='Learning rate')
     parser.add_argument('--rank', type=int, default=16,
@@ -556,6 +570,7 @@ def main():
         batch_size=args.batch_size,
         max_steps=args.max_steps,
         max_seq_len=args.max_seq_len,
+        max_samples=args.max_samples,
         learning_rate=args.lr,
         rank=args.rank,
         alpha=args.alpha,
