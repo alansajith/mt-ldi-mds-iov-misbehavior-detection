@@ -260,12 +260,13 @@ def find_topk_pairs(df: pd.DataFrame, feature_cols: List[str],
 def load_veremi_dataset(csv_path: str) -> pd.DataFrame:
     """
     Load VeReMi extension dataset from CSV.
+    Handles different column naming conventions.
     
     Args:
         csv_path: Path to veremi.csv
         
     Returns:
-        DataFrame with VeReMi data
+        DataFrame with VeReMi data (standardized columns)
         
     Raises:
         FileNotFoundError: If dataset not found with clear instructions
@@ -294,6 +295,28 @@ def load_veremi_dataset(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     print(f"Dataset shape: {df.shape}")
     print(f"Columns: {list(df.columns)}")
+    
+    # Standardize column names for different VeReMi formats
+    # This dataset uses 'attack' as label column
+    if 'attack' in df.columns and 'label' not in df.columns:
+        df = df.rename(columns={'attack': 'label'})
+        print("Renamed 'attack' column to 'label'")
+    
+    # Drop 'Unnamed: 0' index column if present
+    if 'Unnamed: 0' in df.columns:
+        df = df.drop(columns=['Unnamed: 0'])
+        print("Dropped 'Unnamed: 0' column")
+    
+    # Drop 'type' column if present (not a feature)
+    if 'type' in df.columns:
+        df = df.drop(columns=['type'])
+        print("Dropped 'type' column")
+    
+    # Drop 'attack_type' column if present (string version of label)
+    if 'attack_type' in df.columns:
+        df = df.drop(columns=['attack_type'])
+        print("Dropped 'attack_type' column")
+    
     print(f"Label distribution:\n{df['label'].value_counts().sort_index()}")
     return df
 
@@ -310,7 +333,10 @@ def prepare_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         (processed_df, feature_column_names)
     """
     # Identify numeric feature columns (exclude label and metadata)
-    exclude_cols = ['label', 'sender', 'sendTime', 'attackerType', 'attackID']
+    # This dataset has: pos_0, pos_1, pos_noise_0, pos_noise_1, spd_0, spd_1, 
+    # spd_noise_0, spd_noise_1, acl_0, acl_1, acl_noise_0, acl_noise_1, hed_0, hed_1, hed_noise_0, hed_noise_1
+    # Also rcvTime which is numeric but not a feature
+    exclude_cols = ['label', 'sender', 'sendTime', 'attackerType', 'attackID', 'rcvTime', 'type', 'attack_type']
     feature_cols = [c for c in df.columns if c not in exclude_cols and 
                     pd.api.types.is_numeric_dtype(df[c])]
     
@@ -340,6 +366,8 @@ def split_dataset(df: pd.DataFrame, feature_cols: List[str],
         (df_A, df_B, df_C) - Three DataFrames for each teacher
     """
     # Define attack label groups
+    # Label mapping: 0=benign, 1=DoS, 2=Sybil, 3=fixed_position, 4=random_position,
+    # 5=eventual_stop, 6=fixed_speed, 7=random_speed, 8=data_replay
     teacher_A_labels = [0, 1, 2]      # Benign + DoS + Sybil
     teacher_B_labels = [0, 3, 4, 5]   # Benign + Position spoofing
     teacher_C_labels = [0, 6, 7, 8]   # Benign + Speed/Replay
