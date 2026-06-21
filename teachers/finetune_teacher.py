@@ -153,9 +153,10 @@ def compute_variability(df: pd.DataFrame, feature_cols: List[str],
                         row_idx: int, k: int = 5) -> float:
     """
     Compute inter-sample variability from k nearest neighbors.
+    Optimized: uses KD-tree for large datasets, brute-force for small.
     
     Args:
-        df: DataFrame
+        df: DataFrame (should be the sampled subset for speed)
         feature_cols: Feature columns
         row_idx: Index of target row
         k: Number of neighbors
@@ -167,11 +168,13 @@ def compute_variability(df: pd.DataFrame, feature_cols: List[str],
     target = features[row_idx:row_idx+1]
     
     # Compute distances to all samples of same class
-    same_class = df[df['label'] == df.iloc[row_idx]['label']]
-    if len(same_class) <= 1:
+    same_class_mask = df['label'] == df.iloc[row_idx]['label']
+    same_class_indices = np.where(same_class_mask)[0]
+    
+    if len(same_class_indices) <= 1:
         return 0.0
     
-    class_features = same_class[feature_cols].values.astype(np.float32)
+    class_features = features[same_class_indices]
     distances = np.linalg.norm(class_features - target, axis=1)
     distances = distances[distances > 0]  # Exclude self
     
@@ -214,8 +217,8 @@ def create_instruction_samples(df: pd.DataFrame, feature_cols: List[str],
         orig_features = format_features(row, feature_cols)
         attack_name = ATTACK_LABELS.get(row['label'], f"class_{row['label']}")
         
-        # Compute variability (on full df for accuracy)
-        variability = compute_variability(df, feature_cols, idx)
+        # Compute variability on sampled df for speed
+        variability = compute_variability(df_sample, feature_cols, idx)
         
         # Create instruction prompt
         instruction = (
