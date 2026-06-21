@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data files (too large for GitHub)
+data/veremi.csv
+data/split_A.csv
+data/split_B.csv
+data/split_C.csv
+
+# Model checkpoints and adapters (too large)
+teachers/teacher_A_adapters/
+teachers/teacher_B_adapters/
+teachers/teacher_C_adapters/
+teachers/embeddings_A.npy
+teachers/embeddings_B.npy
+teachers/embeddings_C.npy
+training/best_model.pt
+
+# Kaggle/Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS files
+.DS_Store
+
+# Logs
+*.log

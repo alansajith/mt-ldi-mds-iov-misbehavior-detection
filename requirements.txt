@@ -1,0 +1,33 @@
+# MT-LDI-MDS: Multi-Teacher Lightweight Distilled Intelligence - Misbehavior Detection System
+# Requirements for Kaggle Notebook with GPU T4 x2 (32GB VRAM, CUDA)
+
+# Core ML frameworks
+torch==2.4.0
+torchvision==0.19.0
+torchaudio==2.4.0
+
+# HuggingFace ecosystem
+transformers==4.44.0
+accelerate==0.33.0
+peft==0.12.0
+datasets==2.20.0
+tokenizers==0.19.1
+
+# Quantization support (for potential future use)
+bitsandbytes==0.44.0
+
+# Data processing
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+
+# Visualization
+matplotlib==3.9.1
+seaborn==0.13.2
+
+# Utilities
+tqdm==4.66.4
+pyyaml==6.0.1
+
+# For CUDA memory management
+# No additional packages needed - use torch.cuda
